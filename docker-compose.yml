@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  # Source Database Simulation (MySQL)
+  mysql-source:
+    image: mysql:8.0
+    volumes:
+      - ./scripts/mysql_init:/docker-entrypoint-initdb.d
+    container_name: mysql_aviation_source
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: /run/secrets/MYSQL_ROOT_PASSWORD
+      MYSQL_DATABASE: aviation_transactional
+      MYSQL_USER: aviation_user
+      MYSQL_PASSWORD: /run/secrets/MYSQL_PASSWORD
+    secrets:
+      - MYSQL_ROOT_PASSWORD
+      - MYSQL_PASSWORD
+
+  # Integration Layer (PostgreSQL)
+  postgres-integration:
+    image: postgres:15
+    container_name: postgres_aviation_integration
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: aviation_admin
+      POSTGRES_PASSWORD: /run/secrets/POSTGRES_PASSWORD
+      POSTGRES_DB: aviation_3nf
+    secrets:
+      - POSTGRES_PASSWORD
+
+  secrets:
+    MYSQL_ROOT_PASSWORD:
+      file: mysql_root_password.txt
+    MYSQL_PASSWORD:
+      file: mysql_password.txt
+    POSTGRES_PASSWORD:
+      file: postgres_password.txt
+
+  volumes:
+    - ./scripts/postgres_init:/docker-entrypoint-initdb.d
