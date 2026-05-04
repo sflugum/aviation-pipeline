@@ -1,6 +1,6 @@
 # Aviation data pipeline
 
-A portfolio project building an end-to-end ingestion and transformation pipeline for private aviation operations data. Actively in development — Phase I is complete and Phase II is underway.
+A portfolio project building an end-to-end ingestion and transformation pipeline for private aviation operations data. Actively in development. Phase I is in progress and Phase II will follow straight after.
 
 Built to demonstrate data engineering fundamentals: normalized schema design, containerized infrastructure, cloud storage integration, and a clear separation between raw, integrated, and analytical data layers.
 
@@ -10,7 +10,7 @@ Built to demonstrate data engineering fundamentals: normalized schema design, co
 
 **Phase I: in progress.** MySQL and PostgreSQL will be containerized via Docker Compose. Initial DDL scripts will define a 3NF schema across fleet, flight, and maintenance domains.
 
-**Phase II: up next.** (`dev` branch). Python extraction scripts and AWS S3 bronze layer integration.
+**Phase II: up next.** Python extraction scripts and AWS S3 bronze layer integration.
 
 ---
 
