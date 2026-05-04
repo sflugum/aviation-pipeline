@@ -1,22 +1,22 @@
-version: '3.8'
-
 services:
   # Source Database Simulation (MySQL)
   mysql-source:
     image: mysql:8.0
-    volumes:
-      - ./scripts/mysql_init:/docker-entrypoint-initdb.d
     container_name: mysql_aviation_source
     ports:
       - "3306:3306"
     environment:
-      MYSQL_ROOT_PASSWORD: /run/secrets/MYSQL_ROOT_PASSWORD
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: aviation_transactional
       MYSQL_USER: aviation_user
-      MYSQL_PASSWORD: /run/secrets/MYSQL_PASSWORD
-    secrets:
-      - MYSQL_ROOT_PASSWORD
-      - MYSQL_PASSWORD
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - ./scripts/mysql_init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5   
 
   # Integration Layer (PostgreSQL)
   postgres-integration:
@@ -26,18 +26,15 @@ services:
       - "5432:5432"
     environment:
       POSTGRES_USER: aviation_admin
-      POSTGRES_PASSWORD: /run/secrets/POSTGRES_PASSWORD
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: aviation_3nf
-    secrets:
-      - POSTGRES_PASSWORD
-
-  secrets:
-    MYSQL_ROOT_PASSWORD:
-      file: mysql_root_password.txt
-    MYSQL_PASSWORD:
-      file: mysql_password.txt
-    POSTGRES_PASSWORD:
-      file: postgres_password.txt
-
-  volumes:
+    volumes:
     - ./scripts/postgres_init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aviation_admin -d aviation_3nf"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+  
