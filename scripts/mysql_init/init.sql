@@ -1,13 +1,10 @@
-CREATE DATABASE IF NOT EXISTS source_data_db;
-USE source_data_db;
-
 DROP TABLE IF EXISTS maintenance_events;
 DROP TABLE IF EXISTS flight_logs;
 DROP TABLE IF EXISTS aircraft;
 
 CREATE TABLE aircraft (
   aircraft_id INT NOT NULL AUTO_INCREMENT,
-  tail_number VARCHAR(10) NOT NULL,
+  tail_number VARCHAR(10) NOT NULL, 
   model VARCHAR(50) NOT NULL,
   total_flight_hours DECIMAL(10,2) NOT NULL,
   PRIMARY KEY(aircraft_id)
