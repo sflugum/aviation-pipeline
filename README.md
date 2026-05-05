@@ -1,4 +1,4 @@
-# Aviation data pipeline
+# Aviation Data Pipeline
 
 A portfolio project building an end-to-end ingestion and transformation pipeline for private aviation operations data. Actively in development. Phase I is in progress and Phase II will follow straight after.
 
