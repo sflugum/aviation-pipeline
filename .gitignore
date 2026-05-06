@@ -1,3 +1,22 @@
-/data
+# Maven
+target/
+*.class
+.mtj.tmp/
+
+
+# Python
+.venv/
+__pycache__/
+
+#IDE
+.vscode/
+
+data/
+
+# Environment/Secrets
 .env
 !.env.example
+
+
+
+
