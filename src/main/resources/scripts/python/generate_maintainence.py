@@ -3,7 +3,7 @@ import random
 from datetime import datetime, timedelta
 
 
-# OpenSky ICAO24 numbers 
+# ICAO24 numbers via OpenSky database "aircraft-database-complete-2025-08.csv"
 # 'ae59f8', 'ae5a8d', 'ae5a8d', 'ae5b8a' were selected to cause null or erratic data
 WATCHLIST = [
     '343111', '343113', '343147', '343240', '343286', '343603', '343618',
@@ -33,7 +33,7 @@ def generate_logs(num_records=75):
             service = random.choice(service_types)
             status = random.choice(statuses)
             days_ago = random.randint(0, 30)
-            log_date = (datetime.now() - timedelta(days=days_ago)).strftime('%Y/%M/%D %H:%M:%S')
+            log_date = (datetime.now() - timedelta(days=days_ago)).strftime('%Y-%m-%d %H:%M:%S')
 
             writer.writerow([icao, service, status, log_date])
 
