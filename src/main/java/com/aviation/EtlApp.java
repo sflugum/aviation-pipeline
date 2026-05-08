@@ -8,6 +8,5 @@ public class EtlApp {
     public static void main( String[] args )
     {
         SpringApplication.run(EtlApp.class, args);
-
     }
 }
