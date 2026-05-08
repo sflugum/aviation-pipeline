@@ -1,4 +1,4 @@
-DROP TABLE IF EXISTS raw_maintenance
+DROP TABLE IF EXISTS raw_maintenance;
 
 CREATE TABLE raw_maintenance (
   log_id INT AUTO_INCREMENT PRIMARY KEY,

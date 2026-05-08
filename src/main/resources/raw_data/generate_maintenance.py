@@ -24,7 +24,7 @@ def generate_logs(num_records=75):
                      'Oil Chnage', 'Brake Pad Service']
     statuses = ['Completed', 'Pending', 'Scheduled']
 
-    with open('raw_maintenance_logs.csv', 'w', newline='') as f:
+    with open('./src/main/resources/raw_data/raw_maintenance_logs.csv', 'w', newline='') as f:
         writer = csv.writer(f)
         writer.writerow(['icao24', 'service_type', 'status', 'log_date'])
 
