@@ -1,5 +1,3 @@
-version: '4.75'
-
 services:
   # Bronze Layer: MySQL
   mysql-bronze:
@@ -14,9 +12,8 @@ services:
     ports:
       - "3306:3306"
     volumes:
+      - ./mysql-init:/docker-entrypoint-initdb.d
       - mysql-data:/var/lib/mysql
-    networks:
-      - data-network
 
   # Gold Layer: PostgreSQL
   postgres-gold:
@@ -30,15 +27,11 @@ services:
     ports:
       - "5432:5432"
     volumes:
+      - ./postgres-init:/docker-entrypoint-initdb.d
       - postgres-data:/var/lib/postgresql/data
-    networks:
-      - data-network
 
 volumes:
   mysql-data:
   postgres-data:
 
-networks:
-  data-network:
-    driver: bridge
 
