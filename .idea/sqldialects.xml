@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
   <component name="SqlDialectMappings">
-    <file url="file://$PROJECT_DIR$/sql/01_ingest_mysql_bronze.sql" dialect="MySQL" />
-    <file url="file://$PROJECT_DIR$/sql/02_load_postgres_gold.sql" dialect="PostgreSQL" />
+    <file url="file://$PROJECT_DIR$/sql/mysql-init/01_ingest_mysql_bronze.sql" dialect="MySQL" />
+    <file url="file://$PROJECT_DIR$/sql/postgres-init/02_load_postgres_gold.sql" dialect="PostgreSQL" />
   </component>
 </project>

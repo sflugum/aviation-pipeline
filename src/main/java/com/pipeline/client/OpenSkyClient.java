@@ -1,5 +1,6 @@
 package com.pipeline.client;
 
+import com.pipeline.config.ConfigManager;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;

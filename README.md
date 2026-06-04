@@ -22,7 +22,7 @@ An Extract, Transform, and Load (ETL) data pipeline built from the ground up to 
 ## Project Roadmap
 - [x] **Step 1:** Draft SQL scripts and establish initial data models.
 - [x] **Step 2:** Configure Docker and `docker-compose.yml` for local database hosting.
-- [ ] **Step 3:** Establish JDBC connections and basic Java application structure.
+- [x] **Step 3:** Establish JDBC connections and basic Java application structure.
 - [ ] **Step 4:** Implement data extraction and parsing logic.
 - [ ] **Step 5:** Develop transformation rules and load mechanisms.
 
