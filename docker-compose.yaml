@@ -6,13 +6,13 @@ services:
     restart: always
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: bronze_db
-      MYSQL_USER: bronze_user
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     ports:
       - "3306:3306"
     volumes:
-      - ./mysql-init:/docker-entrypoint-initdb.d
+      - ./sql/mysql-init:/docker-entrypoint-initdb.d
       - mysql-data:/var/lib/mysql
 
   # Gold Layer: PostgreSQL
@@ -21,14 +21,23 @@ services:
     container_name: postgres-gold
     restart: always
     environment:
-      POSTGRES_USER: gold_user
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: gold_db
     ports:
       - "5432:5432"
     volumes:
-      - ./postgres-init:/docker-entrypoint-initdb.d
+      - ./sql/postgres-init:/docker-entrypoint-initdb.d
       - postgres-data:/var/lib/postgresql/data
+
+  aviation-data-pipe:
+    build: .
+    depends_on:
+      - mysql-bronze
+    environment:
+      - BRONZE_DB_HOST=${BRONZE_DB_HOST}
+      - BRONZE_DB_USER=${BRONZE_DB_USER}
+      - BRONZE_DB_PASSWORD=${BRONZE_DB_PASSWORD}
 
 volumes:
   mysql-data:

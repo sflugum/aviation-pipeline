@@ -1,18 +1,35 @@
 package com.pipeline.db;
 
+import com.pipeline.config.ConfigManager;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 
 public class DatabaseManager {
 
-    // TODO: Docker Secrets/file mounting with .env/application.properties, passwords, etc
-    //  see OpenSkyClient for application.properties info
-    private static final String BRONZE_URL = "jdbc:mysql://localhost:3306/bronze_db";
-    private static final String BRONZE_USER = "root";
-    private static final String BRONZE_PASSWORD = "${MYSQL_ROOT_PASSWORD}";
+    public Connection connectToBronze() throws SQLException {
+        String dbHost = ConfigManager.get("BRONZE_DB_HOST");
+        String dbUser = ConfigManager.get("BRONZE_DB_USER");
+        String dbPassword = ConfigManager.get("BRONZE_DB_PASSWORD");
 
-    public Connection getBronzeConnection() throws SQLException {
-        return DriverManager.getConnection(BRONZE_URL, BRONZE_USER, BRONZE_PASSWORD);
+        String dbPort = ConfigManager.get("bronze.db.port");
+        String dbName = ConfigManager.get("bronze.db.name");
+
+        String bronzeUrl = String.format("jdbc:mysql://%s:%s/%s", dbHost, dbPort, dbName);
+
+        return DriverManager.getConnection(bronzeUrl, dbUser, dbPassword);
+    }
+
+    public Connection connectToGold() throws SQLException {
+        String dbHost = ConfigManager.get("GOLD_DB_HOST");
+        String dbUser = ConfigManager.get("GOLD_DB_USER");
+        String dbPassword = ConfigManager.get("GOLD_DB_PASSWORD");
+
+        String dbPort = ConfigManager.get("gold.db.port");
+        String dbName = ConfigManager.get("gold.db.name");
+
+        String goldUrl = String.format("jdbc:postgresql://%s:%s/%s", dbHost, dbPort, dbName);
+
+        return DriverManager.getConnection(goldUrl, dbUser, dbPassword);
     }
 }
