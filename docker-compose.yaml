@@ -21,7 +21,7 @@ services:
     container_name: postgres-gold
     restart: always
     environment:
-      POSTGRES_DATABASE: ${POSTGRES_DB}
+      POSTGRES_DB: ${POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     ports:
@@ -29,6 +29,15 @@ services:
     volumes:
       - ./sql/postgres-init:/docker-entrypoint-initdb.d
       - postgres-data:/var/lib/postgresql/data
+
+  aviation-data-pipe:
+    build: .
+    depends_on:
+      - mysql-bronze
+    environment:
+      - BRONZE_DB_HOST=${BRONZE_DB_HOST}
+      - BRONZE_DB_USER=${BRONZE_DB_USER}
+      - BRONZE_DB_PASSWORD=${BRONZE_DB_PASSWORD}
 
 volumes:
   mysql-data:
