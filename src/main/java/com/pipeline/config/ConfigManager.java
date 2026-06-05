@@ -1,16 +1,15 @@
 package com.pipeline.config;
 
-import com.pipeline.Main;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
-import java.io.FileReader;
 import java.io.InputStream;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Properties;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 public class ConfigManager {
 
@@ -23,15 +22,23 @@ public class ConfigManager {
         try (InputStream input = ConfigManager.class.getClassLoader().getResourceAsStream("application.properties")) {
             if (input != null) {
                 appProps.load(input);
+            } else {
+                logger.debug("application.properties not found on classpath.");
             }
-        } catch (Exception e) {
-            logger.error("Warning: Could not load application.properties.");
+        } catch (IOException e) {
+            logger.error("Error reading application.properties: {}", e.getMessage());
         }
 
-        try (BufferedReader reader = new BufferedReader(new FileReader(".env"))) {
-            envProps.load(reader);
-        } catch (Exception e) {
-              //TODO
+        Path envPath = Paths.get(".env");
+        if (Files.exists(envPath)) {
+            try (BufferedReader reader = Files.newBufferedReader(envPath)) {
+                envProps.load(reader);
+                logger.info("Successfully loaded configuration from .env file.");
+            } catch (IOException e) {
+                logger.warn("A .env file was found but could not be read. Check permissions. Reason: {}", e.getMessage());
+            }
+        } else {
+            logger.debug("No .env file found. Falling back to system environment variables");
         }
     }
 
@@ -51,6 +58,6 @@ public class ConfigManager {
             return value;
         }
 
-        throw new RuntimeException("Configuration key '" + key + "' is missing. Check your .env or application.properties.");
+        throw new RuntimeException("Configuration key '" + key + "' is missing. Check your OS env variables, .env file or application.properties.");
     }
 }
