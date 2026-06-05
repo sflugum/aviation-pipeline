@@ -84,7 +84,7 @@ Before executing the application code, open **DBeaver** to verify that your loca
 
 At this stage of the project, the pipeline actively executes the **Extract** phase, pulling live tracking data from the OpenSky Network API and writing it directly to the raw MySQL database using vanilla JDBC.
 
-1. Open the project root folder within **IntelliJ IDEA**.
+1. Open the project root folder within your preferred IDE.
 2. Allow Maven to import and synchronize all project dependencies.
 3. Navigate to the main entry point file: `src/main/java/[your-package-path]/Main.java`.
 4. Run `Main.java` directly through the IDE to start the data extraction and ingestion cycle.
