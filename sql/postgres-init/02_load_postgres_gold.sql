@@ -4,7 +4,7 @@ DROP TABLE IF EXISTS dim_time;
 
 CREATE TABLE dim_aircraft (
     aircraft_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY ,
-    icao24 VARCHAR(6) NOT NULL ,
+    icao24 VARCHAR(6) NOT NULL UNIQUE,
     callsign VARCHAR(8),
     origin_country VARCHAR(100),
     category VARCHAR(10),
@@ -15,7 +15,7 @@ CREATE TABLE dim_aircraft (
 
 CREATE TABLE dim_time (
     time_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    full_timestamp TIMESTAMP,
+    full_timestamp TIMESTAMP UNIQUE,
     date DATE,
     year INT,
     month INT,
