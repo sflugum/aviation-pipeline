@@ -1,6 +1,6 @@
 # Aviation ETL Pipeline
 
-![Docs Status](https://img.shields.io/badge/docs-up_to_date-brightgreen)
+![Docs Status](https://img.shields.io/badge/docs-in_progress-yellow)
 ![GitHub last commit](https://img.shields.io/github/last-commit/sflugum/aviation-pipeline/main)
 
 ## Overview
