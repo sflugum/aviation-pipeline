@@ -1,6 +1,7 @@
 DROP TABLE IF EXISTS fact_flight_state;
-DROP TABLE IF EXISTS dim_aircraft;
 DROP TABLE IF EXISTS dim_time;
+DROP TABLE IF EXISTS dim_aircraft;
+
 
 CREATE TABLE dim_aircraft (
     aircraft_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY ,
@@ -45,5 +46,3 @@ CREATE TABLE fact_flight_state (
     sensors INT[],
     position_source INT
 );
-
-
