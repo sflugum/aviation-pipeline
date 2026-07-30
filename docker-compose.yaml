@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   # Bronze Layer: MySQL
   mysql-bronze:
@@ -5,15 +7,20 @@ services:
     container_name: mysql-bronze
     restart: always
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
-      MYSQL_DATABASE: ${MYSQL_DATABASE}
-      MYSQL_USER: ${MYSQL_USER}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${BRONZE_DB_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${BRONZE_DB_NAME}
+      MYSQL_USER: ${BRONZE_DB_USER}
+      MYSQL_PASSWORD: ${BRONZE_DB_PASSWORD}
     ports:
       - "3306:3306"
     volumes:
       - ./sql/mysql-init:/docker-entrypoint-initdb.d
       - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   # Gold Layer: PostgreSQL
   postgres-gold:
@@ -21,26 +28,35 @@ services:
     container_name: postgres-gold
     restart: always
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${GOLD_DB_NAME}
+      POSTGRES_USER: ${GOLD_DB_USER}
+      POSTGRES_PASSWORD: ${GOLD_DB_PASSWORD}
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - ./sql/postgres-init:/docker-entrypoint-initdb.d
       - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${GOLD_DB_USER}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   aviation-data-pipe:
     build: .
     depends_on:
-      - mysql-bronze
+      mysql-bronze:
+        condition: service_healthy
+      postgres-gold:
+        condition: service_healthy
     environment:
       - BRONZE_DB_HOST=${BRONZE_DB_HOST}
       - BRONZE_DB_USER=${BRONZE_DB_USER}
       - BRONZE_DB_PASSWORD=${BRONZE_DB_PASSWORD}
+      - GOLD_DB_HOST=${GOLD_DB_HOST}
+      - GOLD_DB_USER=${GOLD_DB_USER}
+      - GOLD_DB_PASSWORD=${GOLD_DB_PASSWORD}
 
 volumes:
   mysql-data:
   postgres-data:
-
-
