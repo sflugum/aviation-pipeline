@@ -76,5 +76,5 @@ public class ConfigManager {
         throw new RuntimeException("Configuration key '" + key + "' is missing. Check your OS env variables, .env file or application.properties.");
     }
 
-    // TODO: add validatedRequiredKeys method here, see GitHub issue #[number]
+    // TODO: add validatedRequiredKeys method here, see GitHub issue #[12]
 }

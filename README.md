@@ -4,9 +4,9 @@
 
 ## Overview
 
-An Extract, Transform, and Load (ETL) data pipeline built from the ground up to process aviation data. I chose to use
-core Java and raw JDBC for this project to develop a deep, mechanical understanding of data engineering and database
-architecture without relying on heavy abstractions.
+An Extract, Transform, and Load (ETL) data pipeline that pulls live flight data from the OpenSky API, lands it in MySQL, and transforms it into a star schema in PostgreSQL. Core Java and raw JDBC were selected for this project to experience the mechanics of data engineering and database architecture without relying on heavy abstractions.
+
+> **Note:** This project is backend, database, and container work only. Frontend (UI) and/or deployment are not priorities. The focus is the pipeline itself so, for now, the concentration is on optimizing that.
 
 ## Architecture Overview
 
@@ -23,44 +23,36 @@ flowchart LR
 
     subgraph Gold [Gold Layer: Transformation]
         direction TB
-        Java2[GoldTransformer.java] -- " JDBC Idempotent Upsert " --> Postgres[(PostgreSQL<br/>Star Schema)]
-    
-    %% Database internal structure
-      Postgres -.-> dim_aircraft[(dim_aircraft)]
-      Postgres -.-> dim_time[(dim_time)]
-      Postgres -.-> fact_flight_state[(fact_flight_state)]
+        Java2[GoldTransformer.java]
+
+        Java2 -- " SCD2 Expire and Insert " --> dim_aircraft[(dim_aircraft)]
+        Java2 -- " INSERT DO NOTHING " --> dim_time[(dim_time)]
+        Java2 -- " Batch Append " --> fact_flight_state[(fact_flight_state)]
     end
 
 %% Styling
-  classDef javaApp fill:#111111,stroke:#f43f5e,stroke-width:2px,color:#ffffff;
-  classDef database fill:#111111,stroke:#14b8a6,stroke-width:2px,color:#ffffff;
-  classDef api fill:#111111,stroke:#eab308,stroke-width:2px,color:#ffffff;
+    classDef javaApp fill:#111111,stroke:#f43f5e,stroke-width:2px,color:#ffffff;
+    classDef database fill:#111111,stroke:#14b8a6,stroke-width:2px,color:#ffffff;
+    classDef api fill:#111111,stroke:#eab308,stroke-width:2px,color:#ffffff;
 
-  class Java1 javaApp;
-  class Java2 javaApp;
-  class MySQL database;
-  class Postgres database;
-  class dim_aircraft database;
-  class dim_time database;
-  class fact_flight_state database;
-  class API api;
+    class Java1 javaApp;
+    class Java2 javaApp;
+    class MySQL database;
+    class dim_aircraft database;
+    class dim_time database;
+    class fact_flight_state database;
+    class API api;
 ```
 
 ---
 
-## High-Performance Data Engineering
+## How It Works
 
-### 1. Framework-Free API Extraction
+**Bronze (MySQL):** Each flight state from the OpenSky response is inserted as-is into a single JSON column. No parsing happens at this stage, so a malformed or unexpected field in the API response doesn't stop ingestion. Validation and parsing happen later, in the transform step.
 
-To build a mechanical understanding of network I/O, the pipeline intentionally bypasses external REST frameworks (like
-Spring WebClient) in favor of Java's native `java.net.http.HttpClient`. It handles connection timeouts, synchronous JSON
-extraction, and concurrency thread interruptions purely through core Java mechanics before handing the payload to the
-Bronze layer.
+**Gold (PostgreSQL):** `GoldTransformer` reads unprocessed rows out of the Bronze table, resolves each flight to an aircraft dimension key and a time dimension key, and inserts the result into `fact_flight_state`. The whole run is wrapped in a single transaction across both databases, so a failure partway through rolls back instead of leaving Bronze and Gold out of sync with each other.
 
-### 2. Data Transformation: Bronze to Gold Layer
-
-Raw JSON telemetry is extracted from the MySQL Bronze layer, strictly typed, standardized, and loaded into the
-PostgreSQL Gold layer using a relational Star Schema.
+---
 
 **Bronze Layer: Raw MySQL Landing Zone**
 *Here, the OpenSky JSON array is staged in the single raw_data column.*
@@ -77,36 +69,51 @@ PostgreSQL Gold layer using a relational Star Schema.
 
 <p align="center">
     <a href="images/aircraft_tab.png">
-      <img src="images/aircraft_tab.png" width="48%" alt="Aircraft Dimension" />
+      <img src="images/aircraft_tab.png" width="45%" alt="Aircraft Dimension" />
     </a>
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
     <a href="images/time_tab.png">
-      <img src="images/time_tab.png" width="48%" alt="Time Dimension" />
+      <img src="images/time_tab.png" width="45%" alt="Time Dimension" />
     </a>
 </p>
 
-### 3. Idempotent Dimension Loading (SCD Type 1)
+**Pipeline Run**
+*Cropped console output from a full run, showing each stage of the ETL process completing.*
 
-To ensure the ETL pipeline remains highly performant and idempotent, the Gold layer transformation utilizes native
-PostgreSQL UPSERTs combined with the RETURNING clause.
+[<img src="images/docker_log1.png" alt="Docker Log 1-4" width="50%" />](images/docker_log1.png)
+[<img src="images/docker_log2.png" alt="Docker Log 5" width="50%" />](images/docker_log2.png)
+
+---
+
+## Design Decisions
+
+- **Framework-free HTTP client.** `OpenSkyClient` uses `java.net.http.HttpClient` directly instead of a REST client library. This was a deliberate choice to handle timeouts, response parsing, and thread interruption manually instead of letting a framework handle them out of sight.
+- **Raw JSON in Bronze.** Storing the payload as one JSON column instead of parsed fields means a change in OpenSky's response shape won't break ingestion outright, it'll surface later during transformation instead.
+- **SCD Type 2 on `dim_aircraft` only.** When an aircraft's callsign or origin country changes, the old row is expired (`is_current = FALSE`, `effective_to = NOW()`) and a new one is inserted, instead of overwriting the existing row. `dim_time` doesn't need this, timestamps don't change once written, so it's insert-once.
+- **In-memory caching within a run.** Aircraft and time lookups are cached in a `HashMap` so the same aircraft or timestamp isn't queried twice during a single run. The cache is not persisted between runs, it starts empty each time `Main` executes.
+- **Connection retry on startup.** `DatabaseManager` retries failed connections with a delay, since the Docker database containers can still be starting up when the app tries to connect.
+
+---
+
+## Querying the Gold Layer
+
+With the data loaded into a star schema, questions like "top 10 fastest recorded aircraft" can be answered with a straightforward window function instead of application code:
 
 [<img src="images/sql_query.png" alt="Code Snippet" width="700" />](images/sql_query.png)
 
-Mechanical Advantages:
-
-- Zero ORM Overhead: Built using raw JDBC PreparedStatement to maintain absolute control over memory and execution
-  plans.
-- Reduced Network I/O: The RETURNING clause eliminates the N+1 query problem by retrieving the database-generated
-  surrogate key (aircraft_id) instantly, which is then loaded into an in-memory Java HashMap cache to prevent future
-  database hits during the batch process.
-
-### 4. Star Schema Analytics: Querying the Gold Layer
-
-With the data successfully normalized into a Star Schema, we can execute complex business-intelligence queries, such as
-ranking the fastest recorded aircraft per country.
-
 Query Output (Top 10 Fastest Aircraft):
 
-[<img src="images/sql_query_result.png" alt="SQL Query Result" width="700" />](images/sql_query_result.png)
+[<img src="images/avi-pipe-sql-result.png" alt="SQL Query Result" width="700" />](images/avi-pipe-sql-result.png)
+
+> **Note:** The top 3 speeds in example above aren't physically possible for an aircraft. OpenSky is a crowdsourced network of volunteer-run ADS-B receivers, so occasional bad readings are expected. This pipeline doesn't filter them out yet (see Issue #13).
+
+---
+
+## Known Limitations
+
+- No automated tests yet. Verification is currently manual, through DBeaver, against both databases (see Issue #14).
+- No validation on incoming velocity/altitude values yet. OpenSky's data comes from volunteer-run receivers, so occasional bad readings (see the query results above) currently pass through to the Gold layer as-is (see Issue #13).
+- `ConfigManager` has a planned `validateRequiredKeys` check that isn't implemented yet, so a missing config value currently fails at first use rather than at startup (see Issue #12).
 
 ---
 
@@ -117,79 +124,62 @@ Query Output (Top 10 Fastest Aircraft):
 ![MySQL](https://img.shields.io/badge/mysql-4479A1.svg?style=for-the-badge&logo=mysql&logoColor=white)
 ![PostgreSQL](https://img.shields.io/badge/postgresql-4169e1?style=for-the-badge&logo=postgresql&logoColor=white)
 
-* **Language:** Java (Core)
-* **API Client:** Native `java.net.http.HttpClient`
-* **Data Access:** JDBC
-* **Databases:** MySQL (Bronze Layer), PostgreSQL (Gold Layer)
+* **Language:** Java 21 (Core)
+* **API Client:** Native `java.net.http.HttpClient` connecting to the OpenSky REST API
+* **Data Access:** JDBC (no ORM)
+* **Databases:** MySQL (Bronze Layer, raw landing zone), PostgreSQL (Gold Layer, star schema)
+* **Database Management Tool:** DBeaver
 * **Infrastructure:** Docker & Docker Compose
 * **Build Tool:** Maven
+
+---
+
+## Data Attribution
+
+Flight data comes from the [OpenSky Network](https://opensky-network.org). Per their terms of use, any publication using this data should cite:
+
+```
+Matthias Schäfer, Martin Strohmeier, Vincent Lenders, Ivan Martinovic and Matthias Wilhelm.
+"Bringing Up OpenSky: A Large-scale ADS-B Sensor Network for Research".
+In Proceedings of the 13th IEEE/ACM International Symposium on Information Processing in Sensor Networks (IPSN), pages 83-94, April 2014.
+```
+
+---
 
 ## Getting Started
 
 ### Prerequisites
 
-To run this pipeline locally, ensure you have the following installed:
+- Docker & Docker Compose
+- Java 17 or higher (built and tested on 21)
+- Maven
 
-- Docker & Docker Compose (for managing database containers)
-- Java SDK (Version 17 or higher recommended)
-- Maven (for dependency management and building the application)
-- DBeaver (or your preferred database management tool to inspect schemas and data)
+Development was done in IntelliJ IDEA with DBeaver for inspecting the databases, but neither is required. Any IDE and any SQL client work fine.
 
 ---
 
-### Installation & Setup
+### Setup
 
-#### 1. Environment Configuration
-
-Before spinning up the infrastructure, configure your local environment variables to manage database credentials and API
-connectivity securely.
-
-* Create a `.env` file in the project root directory (you can use `.env.example` as a template).
-* Populate the `.env` file with your specific database root passwords, usernames, ports, and OpenSky API credentials.
-* The application is configured to automatically fall back through `System.getenv()`, `.env`, and
-  `application.properties` to securely load these credentials into the JDBC connections.
-
-#### 2. Database Infrastructure
-
-The pipeline uses local Docker containers to isolate the raw data landing zone (MySQL) from the eventual cleaned data
-warehouse zone (PostgreSQL).
-
-The schema creation for both databases is handled automatically on startup. The `docker-compose.yaml` is configured to
-mount local SQL initialization scripts directly into the containers' entrypoints.
-
-To build the images, execute the schema initialization, and launch both database containers in detached mode, navigate
-to the project root and run:
-
+1. **Clone the repo.**
 ```bash
-docker compose up -d --build
-
+   git clone https://github.com/sflugum/aviation-pipeline.git
+   cd aviation-pipeline
 ```
 
-> **Note:** The first run (or after code changes) requires `--build` to rebuild images. Subsequent runs can often use `docker compose up -d` if no build context has changed, as shown in the screenshot below.
+2. **Environment variables.** Copy `.env.example` to `.env` and fill in database credentials and the OpenSky API URL. `ConfigManager` checks OS environment variables first, then `.env`, then `application.properties`.
 
-[<img src="images/docker_start.png" alt="Docker Command Success" width="700" />](images/docker_start.png)
+3. **Build and run.**
+```bash
+   docker compose up -d --build
+```
+This starts all three containers, the two databases and the pipeline itself, and the pipeline runs to completion automatically. `--build` is only needed the first time or after code changes; later runs can drop it if nothing in the build context changed.
 
-#### 3. Database Verification (DBeaver)
+4. **Confirm the schema.** The database containers are ready within seconds, well before the pipeline finishes. At this point you can connect to `localhost:3306` (MySQL/Bronze) and `localhost:5433` (PostgreSQL/Gold) with any SQL client (DBeaver, `psql`/`mysql` CLI, etc.) and confirm the tables exist: `opensky_raw_data` on the MySQL side, and `dim_aircraft`, `dim_time`, and `fact_flight_state` on the PostgreSQL side. They'll be empty at this point, that's expected, the pipeline hasn't finished running yet.
 
-Before executing the application code, open **DBeaver** to verify that your local network interfaces to the containers
-are fully active and the initialization scripts ran successfully:
+5. **Check the run.** The pipeline container (`aviation-data-pipe`) exits once the run finishes, so its startup logs alone won't show the full run, which takes a few minutes. To see the complete sequence, either watch Docker Desktop's log view for that container, or run:
+```bash
+   docker compose logs -f aviation-data-pipe
+```
+A successful run ends with a "Pipeline run complete successfully" line.
 
-* **MySQL (Bronze Layer):** Connect via localhost:3306. Verify that the connection is active and that your initial
-  landing table (opensky_raw_data) has been successfully created.
-* **PostgreSQL (Gold Layer):** Connect via localhost:5432. Verify that the target data warehouse container is live and
-  that the dim_aircraft, dim_time, and fact_flight_state tables exist.
-
-#### 4. Running the Application
-
-The pipeline now executes the full Extract, Transform, and Load (ETL) lifecycle. It pulls live tracking data from the
-OpenSky Network API, stages it in the raw MySQL database, processes the data in-memory, and loads it into the PostgreSQL
-Star Schema.
-
-1. Open the project root folder within your preferred IDE.
-2. Allow Maven to import and synchronize all project dependencies.
-3. Navigate to the main entry point file: `src/main/java/com/pipeline/Main.java`.
-4. Run Main.java directly through the IDE to execute the full pipeline flow. Check your IDE's console output for logging
-   steps.
-
-
-
+6. **Verify the data.** Back in your SQL client, confirm rows actually landed in the tables from step 4.
