@@ -7,6 +7,10 @@ import java.sql.SQLException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Opens JDBC connections to both databases, with retry logic since the Docker
+ * containers can take a few seconds to finish starting up after the app does.
+ */
 public class DatabaseManager {
     private static final Logger logger = LoggerFactory.getLogger(DatabaseManager.class);
     private static final int MAX_RETRIES = 10;
@@ -46,6 +50,13 @@ public class DatabaseManager {
         }, "Gold (PostgreSQL)");
     }
 
+
+    /**
+     * Retries the connection with a fixed delay between attempts, stopping at
+     * whichever limit is hit first: MAX_RETRIES or MAX_WAIT_TIME_MS. This exists
+     * mainly for local docker compose runs, where the app can start slightly
+     * before the database container is ready to accept connections.
+     */
     private Connection connectWithRetry(ConnectionSupplier supplier, String dbName) throws SQLException {
         SQLException lastException = null;
         long startTime = System.currentTimeMillis();

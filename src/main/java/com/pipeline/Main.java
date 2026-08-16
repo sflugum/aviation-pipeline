@@ -10,6 +10,11 @@ import java.sql.Connection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Entry point that runs the pipeline end to end: pull from OpenSky, land the
+ * raw payload in MySQL (Bronze), then transform it into the PostgreSQL star
+ * schema (Gold).
+ */
 public class Main {
 
     private static final Logger logger = LoggerFactory.getLogger(Main.class);
@@ -27,14 +32,17 @@ public class Main {
         if (rawJSON != null) {
             logger.info("2. Opening connection to MySQL and PostgreSQL databases...");
 
-            try (Connection conn = dbManager.connectToBronze();
+            // Two separate MySQL connections so the read cursor (streaming raw rows) and the
+            // write statements (marking rows processed) don't interfere with each other
+            try (Connection mysqlReadConn = dbManager.connectToBronze();
+                 Connection mysqlWriteConn = dbManager.connectToBronze();
                  Connection pgConn = dbManager.connectToGold()) {
 
                 logger.info("3. Executing parsing and batch insertion into MySql...");
-                ingestor.parseAndInsert(rawJSON, conn);
+                ingestor.parseAndInsert(rawJSON, mysqlWriteConn);
 
                 logger.info("4. Transforming and loading data into PostgreSQL...");
-                transformer.transformAndLoad(conn, pgConn);
+                transformer.transformAndLoad(mysqlReadConn, mysqlWriteConn, pgConn);
 
                 logger.info("5. Pipeline run complete successfully.");
 

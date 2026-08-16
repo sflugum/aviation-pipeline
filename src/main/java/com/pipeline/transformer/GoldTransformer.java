@@ -10,20 +10,34 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Reads unprocessed raw rows from the MySQL Bronze table, resolves them against
+ * the PostgreSQL star schema (dim_aircraft, dim_time), and loads the results
+ * into fact_flight_state. Runs as a single batched transaction per pipeline run.
+ */
 public class GoldTransformer {
 
     private static final Logger logger = LoggerFactory.getLogger(GoldTransformer.class);
 
-    private final Map<String, Long> aircraftCache = new HashMap<>();
+    private record AircraftState(long id, String callsign, String originCountry) {}
+
+    // In-memory caches so repeated aircraft/timestamps within one run don't hit the
+    // database again after the first lookup. This class is instantiated fresh in Main
+    // each run, so caches start empty each time. If this were to be updated in the future to
+    // run in a continuous loop, the caches would need to be cleared between runs.
+    private final Map<String, AircraftState> aircraftCache = new HashMap<>();
     private final Map<Long, Long> timeCache = new HashMap<>();
+
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public void transformAndLoad(Connection mysqlConn, Connection pgConn) {
-        String extractSql = "SELECT raw_data FROM opensky_raw_data";
+    public void transformAndLoad(Connection mysqlReadConn, Connection mysqlWriteConn, Connection pgConn) {
+        String extractSql = "SELECT raw_id, raw_data FROM opensky_raw_data WHERE processed = FALSE";
+        String updateBronzeSql = "UPDATE opensky_raw_data SET processed = TRUE WHERE raw_id = ?";
 
         String factInsertSql = """
                 INSERT INTO fact_flight_state (
@@ -33,14 +47,9 @@ public class GoldTransformer {
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """;
 
-        String aircraftUpsertSql = """
-                INSERT INTO dim_aircraft (icao24, callsign, origin_country)
-                VALUES (?, ?, ?)
-                ON CONFLICT (icao24) DO UPDATE SET
-                    callsign = EXCLUDED.callsign,
-                    origin_country = EXCLUDED.origin_country
-                RETURNING aircraft_id
-                """;
+        String selectAircraftSql = "SELECT aircraft_id, callsign, origin_country FROM dim_aircraft WHERE icao24 = ? AND is_current = TRUE";
+        String expireAircraftSql = "UPDATE dim_aircraft SET is_current = FALSE, effective_to = NOW() WHERE aircraft_id = ?";
+        String insertAircraftSql = "INSERT INTO dim_aircraft (icao24, callsign, origin_country) VALUES (?, ?, ?) RETURNING aircraft_id";
 
         String timeInsertSql = """
                 INSERT INTO dim_time (full_timestamp, date, year, month, day, hour, minute, second, day_of_week)
@@ -50,28 +59,47 @@ public class GoldTransformer {
 
         String timeSelectSql = "SELECT time_id FROM dim_time WHERE full_timestamp = ?";
 
-        try (PreparedStatement extractStmt = mysqlConn.prepareStatement(extractSql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+        try (PreparedStatement extractStmt = mysqlReadConn.prepareStatement(extractSql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY);
+             PreparedStatement updateBronzeStmt = mysqlWriteConn.prepareStatement(updateBronzeSql);
              PreparedStatement factStmt = pgConn.prepareStatement(factInsertSql);
-             PreparedStatement aircraftStmt = pgConn.prepareStatement(aircraftUpsertSql);
+             PreparedStatement selectAircraftStmt = pgConn.prepareStatement(selectAircraftSql);
+             PreparedStatement expireAircraftStmt = pgConn.prepareStatement(expireAircraftSql);
+             PreparedStatement insertAircraftStmt = pgConn.prepareStatement(insertAircraftSql);
              PreparedStatement timeInsertStmt = pgConn.prepareStatement(timeInsertSql);
              PreparedStatement timeSelectStmt = pgConn.prepareStatement(timeSelectSql)) {
 
+            pgConn.setAutoCommit(false);
+            mysqlWriteConn.setAutoCommit(false);
+
+            // Forces MySQL's JDBC driver to stream results row by row instead of loading
+            // the whole result set into memory. Needed since this table can grow large
+            // and MySQL's default behavior otherwise pulls the entire query result at once
             extractStmt.setFetchSize(Integer.MIN_VALUE);
 
             try (ResultSet rs = extractStmt.executeQuery()) {
-                pgConn.setAutoCommit(false);
+
                 int batchCount = 0;
+                int totalProcessed = 0;
 
                 while (rs.next()) {
+                    long rawId = rs.getLong("raw_id");
                     String rawJson = rs.getString("raw_data");
+
+                    updateBronzeStmt.setLong(1, rawId);
+                    updateBronzeStmt.addBatch();
+                    totalProcessed++;
+
                     JsonNode rootNode = mapper.readTree(rawJson);
                     FlightRecord flight = new FlightRecord(rootNode);
 
+                    // Rows missing either of these can't be placed in the fact table since
+                    // both are needed to resolve dimension keys, so they're skipped rather
+                    // than failing the whole batch
                     if (flight.getIcao24() == null || flight.getTimePosition() == null) {
                         continue;
                     }
 
-                    long aircraftId = resolveAircraftDimension(aircraftStmt, flight);
+                    long aircraftId = resolveAircraftDimension(selectAircraftStmt, expireAircraftStmt, insertAircraftStmt, flight);
                     long timeId = resolveTimeDimension(timeInsertStmt, timeSelectStmt, flight.getTimePosition());
 
                     factStmt.setLong(1, aircraftId);
@@ -99,52 +127,109 @@ public class GoldTransformer {
                     factStmt.addBatch();
                     batchCount++;
 
-                    if (batchCount % 1000 == 0) {
+                    // Flushing both batches together every 1000 rows keeps the fact insert
+                    // and the bronze "processed" flag update in sync with each other
+                    if (totalProcessed % 1000 == 0) {
                         factStmt.executeBatch();
+                        updateBronzeStmt.executeBatch();
                     }
                 }
 
                 factStmt.executeBatch();
-                pgConn.commit();
+                updateBronzeStmt.executeBatch();
 
-                logger.info("Successfully transformed and loaded {} flight records into PostgreSQL Gold Layer", batchCount);
+                pgConn.commit();
+                mysqlWriteConn.commit();
+
+                logger.info("Successfully processed {} raw records and loaded {} flight records into Postgres", totalProcessed, batchCount);
             }
         } catch (Exception e) {
-            logger.error("Error during transformation and loading. Rolling back transaction", e);
+            // Rolling back both connections on any failure so a partial run doesn't leave
+            // Postgres and MySQL out of sync with each other (e.g. rows marked processed
+            // in MySQL but never actually landed in Postgres, or vice versa)
+            logger.error("Error during transformation. Rolling back transactions", e);
             try {
                 if (pgConn != null) pgConn.rollback();
+                if (mysqlWriteConn != null) mysqlWriteConn.rollback();
             } catch (SQLException ex) {
-                logger.error("Failed to rollback transaction", ex);
+                logger.error("Failed to rollback transactions", ex);
             }
         } finally {
             try {
                 if (pgConn != null) pgConn.setAutoCommit(true);
+                if (mysqlWriteConn != null) mysqlWriteConn.setAutoCommit(true);
             } catch (SQLException e) {
                 logger.error("Failed to reset auto-commit", e);
             }
         }
     }
 
-    private long resolveAircraftDimension(PreparedStatement aircraftStmt, FlightRecord flight) throws SQLException {
+    /**
+     * Resolves the current dim_aircraft surrogate key for a flight, checking the
+     * in-memory cache first, then the database. If the aircraft's callsign or
+     * origin country has changed since the last known record, the old row is
+     * expired and a new one is inserted rather than updated in place.
+     */
+    private long resolveAircraftDimension(PreparedStatement selectStmt, PreparedStatement expireStmt, PreparedStatement insertStmt, FlightRecord flight) throws SQLException {
         String icao = flight.getIcao24();
+        String newCallsign = flight.getCallsign();
+        String newCountry = flight.getOriginCountry();
+
+        // 1. Check cache first
         if (aircraftCache.containsKey(icao)) {
-            return aircraftCache.get(icao);
-        }
+            AircraftState cached = aircraftCache.get(icao);
 
-        aircraftStmt.setString(1, icao);
-        aircraftStmt.setString(2, flight.getCallsign());
-        aircraftStmt.setString(3, flight.getOriginCountry());
+            // If data matches perfectly, return cached ID
+            if (Objects.equals(cached.callsign(), newCallsign) && Objects.equals(cached.originCountry(), newCountry)) {
+                return cached.id();
+            }
 
-        try (ResultSet rs = aircraftStmt.executeQuery()) {
-            if (rs.next()) {
-                long id = rs.getLong(1);
-                aircraftCache.put(icao, id);
-                return id;
+            // Expire old record in database if callsign / origin country change
+            expireStmt.setLong(1, cached.id());
+            expireStmt.executeUpdate();
+        } else {
+            // Not in cache, check database for an existing active record
+            selectStmt.setString(1, icao);
+            try (ResultSet rs = selectStmt.executeQuery()) {
+                if (rs.next()) {
+                    long existingId = rs.getLong("aircraft_id");
+                    String existingCallsign = rs.getString("callsign");
+                    String existingCountry = rs.getString("origin_country");
+
+                    if (Objects.equals(existingCallsign, newCallsign) && Objects.equals(existingCountry, newCountry)) {
+                        // New record matches existing record. Cache it and return.
+                        aircraftCache.put(icao, new AircraftState(existingId, existingCallsign, existingCountry));
+                        return existingId;
+                    }
+
+                    // Record exists but changed. Expire the old record.
+                    expireStmt.setLong(1, existingId);
+                    expireStmt.executeUpdate();
+                }
             }
         }
-        throw new SQLException("Failed to resolve aircraft_id for ICAO: " + icao);
+
+        // 2. Insert the new record state
+        insertStmt.setString(1, icao);
+        insertStmt.setString(2, newCallsign);
+        insertStmt.setString(3, newCountry);
+
+        try (ResultSet rs = insertStmt.executeQuery()) {
+            if (rs.next()) {
+                long newId = rs.getLong(1);
+                aircraftCache.put(icao, new AircraftState(newId, newCallsign, newCountry));
+                return newId;
+            }
+        }
+        throw new SQLException("Failed to insert and resolve aircraft_id for ICAO: " + icao);
     }
 
+    /**
+     * Resolves the dim_time surrogate key for a given Unix timestamp, inserting a
+     * new row if one doesn't exist yet. The ON CONFLICT DO NOTHING means a
+     * duplicate timestamp returns no row from the insert, so there's a fallback
+     * select to fetch the id in that case.
+     */
     private long resolveTimeDimension(PreparedStatement insertStmt, PreparedStatement selectStmt, Long unixTimestamp) throws SQLException {
         if (timeCache.containsKey(unixTimestamp)) {
             return timeCache.get(unixTimestamp);
@@ -183,6 +268,9 @@ public class GoldTransformer {
         throw new SQLException("Failed to resolve time_id for timestamp: " + unixTimestamp);
     }
 
+    // The three setXSafe helpers below exist because PreparedStatement.setDouble/setBoolean/
+    // setInt don't accept null directly. OpenSky fields are frequently missing/null, so each
+    // needs its own explicit setNull(Types.X) branch instead of one generic helper.
     private void setDoubleSafe(PreparedStatement pstmt, int index, Double value) throws SQLException {
         if (value == null) pstmt.setNull(index, Types.DOUBLE);
         else pstmt.setDouble(index, value);
