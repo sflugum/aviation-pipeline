@@ -2,24 +2,30 @@ package com.pipeline.model;
 
 import tools.jackson.databind.JsonNode;
 
+/**
+ * Maps a single OpenSky "states" array entry to named fields. OpenSky returns
+ * each flight state as a positional array rather than a named object, so the
+ * parsing order below has to match OpenSky's documented index positions -
+ * it's not self-evident just from reading this class.
+ */
 public class FlightRecord {
 
-    private String icao24;
-    private String callsign;
-    private String originCountry;
-    private Long timePosition; // Unix timestamp
-    private Long lastContact; // Unix timestamp
-    private Double longitude;
-    private Double latitude;
-    private Double baroAltitude;
-    private Boolean onGround;
-    private Double velocity;
-    private Double trueTrack;
-    private Double verticalRate;
-    private Double geoAltitude;
-    private String squawk;
-    private Boolean spi;
-    private Integer positionSource;
+    private final String icao24;
+    private final String callsign;
+    private final String originCountry;
+    private final Long timePosition; // Unix timestamp
+    private final Long lastContact; // Unix timestamp
+    private final Double longitude;
+    private final Double latitude;
+    private final Double baroAltitude;
+    private final Boolean onGround;
+    private final Double velocity;
+    private final Double trueTrack;
+    private final Double verticalRate;
+    private final Double geoAltitude;
+    private final String squawk;
+    private final Boolean spi;
+    private final Integer positionSource;
 
     public Integer getPositionSource() {
         return positionSource;
@@ -106,7 +112,7 @@ public class FlightRecord {
     }
 
     private String parseString(JsonNode node) {
-        return (node == null || node.isNull()) ? null : node.asText().trim();
+        return (node == null || node.isNull()) ? null : node.asString().trim();
     }
 
     private Long parseLong(JsonNode node) {
@@ -118,7 +124,7 @@ public class FlightRecord {
     }
 
     private Boolean parseBoolean(JsonNode node) {
-        return (node != null && !node.isNull()) && node.asBoolean();
+        return (node == null || node.isNull()) ? null : node.asBoolean();
     }
 
     private Integer parseInteger(JsonNode node) {

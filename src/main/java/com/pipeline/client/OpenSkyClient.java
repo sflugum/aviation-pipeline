@@ -9,6 +9,10 @@ import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+/**
+ * Wraps the OpenSky states API call using java.net.http.HttpClient directly,
+ * rather than a framework HTTP client, to keep this layer dependency-free.
+ */
 public class OpenSkyClient {
 
     private static final Logger logger = LoggerFactory.getLogger(OpenSkyClient.class);
@@ -18,6 +22,11 @@ public class OpenSkyClient {
             .connectTimeout(Duration.ofSeconds(10))
             .build();
 
+    /**
+     * Fetches the current raw flight state JSON from OpenSky.
+     * Returns null on any failure (non-200 response, network error, interruption),
+     * which lets the caller decide whether to abort the pipeline run.
+     */
     public String fetchRawFlights() {
         try{
             HttpRequest request = HttpRequest.newBuilder()
@@ -38,6 +47,7 @@ public class OpenSkyClient {
             }
 
         } catch (InterruptedException e) {
+            // Interrupt flag restored here since the exception is caught rather than propagated
             Thread.currentThread().interrupt();
             logger.error("API request was interrupted", e);
             return null;
